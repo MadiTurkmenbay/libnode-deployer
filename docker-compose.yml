@@ -5,8 +5,8 @@ x-translator-build: &translator-build
 x-translator-env: &translator-env
   APP_PORT: "3005"
   NODE_ENV: production
-  DATABASE_URL: postgresql://${TRANSLATOR_POSTGRES_USER:-postgres}:${TRANSLATOR_POSTGRES_PASSWORD:-postgres}@translator-postgres:5432/${TRANSLATOR_POSTGRES_DB:-libnode_translator}
-  REDIS_URL: redis://translator-redis:6379
+  DATABASE_URL: ${TRANSLATOR_DATABASE_URL}
+  REDIS_URL: ${TRANSLATOR_REDIS_URL}
   LOG_LEVEL: ${TRANSLATOR_LOG_LEVEL:-info}
   LLM_PROVIDER: openai
   OPENAI_API_KEY: ${TRANSLATOR_OPENAI_API_KEY:-}
@@ -50,41 +50,12 @@ services:
       - api
     restart: unless-stopped
 
-  translator-postgres:
-    image: postgres:16-alpine
-    container_name: libnode-translator-postgres
-    environment:
-      POSTGRES_DB: ${TRANSLATOR_POSTGRES_DB:-libnode_translator}
-      POSTGRES_USER: ${TRANSLATOR_POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${TRANSLATOR_POSTGRES_PASSWORD:-postgres}
-    volumes:
-      - translator-postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
-  translator-redis:
-    image: redis:7-alpine
-    container_name: libnode-translator-redis
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-
   translator-init:
     build:
       <<: *translator-build
       target: tools
     container_name: libnode-translator-init
     environment: *translator-env
-    depends_on:
-      translator-postgres:
-        condition: service_healthy
     command: ["sh", "-c", "npx prisma migrate deploy && npm run seed"]
 
   translator-web:
@@ -96,10 +67,6 @@ services:
       - "${TRANSLATOR_WEB_PORT:-3005}:3005"
     environment: *translator-env
     depends_on:
-      translator-postgres:
-        condition: service_healthy
-      translator-redis:
-        condition: service_healthy
       translator-init:
         condition: service_completed_successfully
     restart: unless-stopped
@@ -111,14 +78,7 @@ services:
     container_name: libnode-translator-worker
     environment: *translator-env
     depends_on:
-      translator-postgres:
-        condition: service_healthy
-      translator-redis:
-        condition: service_healthy
       translator-init:
         condition: service_completed_successfully
-    command: ["node", "dist/worker.js"]
+    command: ["node", "dist/src/worker.js"]
     restart: unless-stopped
-
-volumes:
-  translator-postgres-data:
