@@ -1,0 +1,124 @@
+x-translator-build: &translator-build
+  context: ../libnode-translator
+  dockerfile: Dockerfile
+
+x-translator-env: &translator-env
+  APP_PORT: "3005"
+  NODE_ENV: production
+  DATABASE_URL: postgresql://${TRANSLATOR_POSTGRES_USER:-postgres}:${TRANSLATOR_POSTGRES_PASSWORD:-postgres}@translator-postgres:5432/${TRANSLATOR_POSTGRES_DB:-libnode_translator}
+  REDIS_URL: redis://translator-redis:6379
+  LOG_LEVEL: ${TRANSLATOR_LOG_LEVEL:-info}
+  LLM_PROVIDER: openai
+  OPENAI_API_KEY: ${TRANSLATOR_OPENAI_API_KEY:-}
+  OPENAI_BASE_URL: ${TRANSLATOR_OPENAI_BASE_URL:-https://api.openai.com/v1}
+  OPENAI_MODEL: ${TRANSLATOR_OPENAI_MODEL:-gpt-5-mini}
+  READER_API_BASE_URL: ${TRANSLATOR_READER_API_BASE_URL:-http://api:8080/api/reader}
+  READER_API_KEY: ${TRANSLATOR_API_KEY}
+  READER_API_MOCK: ${TRANSLATOR_READER_API_MOCK:-false}
+  PLAYWRIGHT_HEADLESS: ${TRANSLATOR_PLAYWRIGHT_HEADLESS:-true}
+  BASIC_AUTH_ENABLED: ${TRANSLATOR_BASIC_AUTH_ENABLED:-false}
+  BASIC_AUTH_USERNAME: ${TRANSLATOR_BASIC_AUTH_USERNAME:-admin}
+  BASIC_AUTH_PASSWORD: ${TRANSLATOR_BASIC_AUTH_PASSWORD:-admin}
+
+services:
+  api:
+    build:
+      context: ../libnode
+      dockerfile: Dockerfile
+    container_name: libnode-api
+    ports:
+      - "5000:8080"
+    environment:
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
+      - JwtSettings__Key=${JWT_SIGNING_KEY}
+      - IntegrationAuth__TranslatorApiKey=${TRANSLATOR_API_KEY}
+      - Cors__Origins__0=${CORS_ORIGIN}
+      - ASPNETCORE_ENVIRONMENT=Development
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../libnode-fronted
+      dockerfile: Dockerfile
+    container_name: libnode-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NUXT_PUBLIC_API_BASE=http://api:8080
+      - NUXT_PUBLIC_API_BASE_CLIENT=${API_BASE_URL}
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  translator-postgres:
+    image: postgres:16-alpine
+    container_name: libnode-translator-postgres
+    environment:
+      POSTGRES_DB: ${TRANSLATOR_POSTGRES_DB:-libnode_translator}
+      POSTGRES_USER: ${TRANSLATOR_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${TRANSLATOR_POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - translator-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  translator-redis:
+    image: redis:7-alpine
+    container_name: libnode-translator-redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  translator-init:
+    build:
+      <<: *translator-build
+      target: tools
+    container_name: libnode-translator-init
+    environment: *translator-env
+    depends_on:
+      translator-postgres:
+        condition: service_healthy
+    command: ["sh", "-c", "npx prisma migrate deploy && npm run seed"]
+
+  translator-web:
+    build:
+      <<: *translator-build
+      target: runtime
+    container_name: libnode-translator-web
+    ports:
+      - "${TRANSLATOR_WEB_PORT:-3005}:3005"
+    environment: *translator-env
+    depends_on:
+      translator-postgres:
+        condition: service_healthy
+      translator-redis:
+        condition: service_healthy
+      translator-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  translator-worker:
+    build:
+      <<: *translator-build
+      target: runtime
+    container_name: libnode-translator-worker
+    environment: *translator-env
+    depends_on:
+      translator-postgres:
+        condition: service_healthy
+      translator-redis:
+        condition: service_healthy
+      translator-init:
+        condition: service_completed_successfully
+    command: ["node", "dist/worker.js"]
+    restart: unless-stopped
+
+volumes:
+  translator-postgres-data:
