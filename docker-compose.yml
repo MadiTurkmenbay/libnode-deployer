@@ -25,9 +25,9 @@ services:
     build:
       context: ../libnode
       dockerfile: Dockerfile
-    container_name: libnode-api
+    container_name: ${API_CONTAINER_NAME:-libnode-api}
     ports:
-      - "5000:8080"
+      - "${API_HOST_PORT:-5000}:8080"
     environment:
       - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
       - JwtSettings__Key=${JWT_SIGNING_KEY}
@@ -40,9 +40,9 @@ services:
     build:
       context: ../libnode-fronted
       dockerfile: Dockerfile
-    container_name: libnode-web
+    container_name: ${WEB_CONTAINER_NAME:-libnode-web}
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_PORT:-3000}:3000"
     environment:
       - NUXT_PUBLIC_API_BASE=http://api:8080
       - NUXT_PUBLIC_API_BASE_CLIENT=${API_BASE_URL}
@@ -54,7 +54,7 @@ services:
     build:
       <<: *translator-build
       target: tools
-    container_name: libnode-translator-init
+    container_name: ${TRANSLATOR_INIT_CONTAINER_NAME:-libnode-translator-init}
     environment: *translator-env
     command: ["sh", "-c", "npx prisma migrate deploy && npm run seed"]
 
@@ -62,7 +62,7 @@ services:
     build:
       <<: *translator-build
       target: runtime
-    container_name: libnode-translator-web
+    container_name: ${TRANSLATOR_WEB_CONTAINER_NAME:-libnode-translator-web}
     ports:
       - "${TRANSLATOR_WEB_PORT:-3005}:3005"
     environment: *translator-env
@@ -75,7 +75,7 @@ services:
     build:
       <<: *translator-build
       target: runtime
-    container_name: libnode-translator-worker
+    container_name: ${TRANSLATOR_WORKER_CONTAINER_NAME:-libnode-translator-worker}
     environment: *translator-env
     depends_on:
       translator-init:
