@@ -1,0 +1,89 @@
+services:
+  postgres-reader-verify:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${VERIFY_READER_DB_NAME:-libnode_verify}
+      POSTGRES_USER: ${VERIFY_POSTGRES_USER:-verify_user}
+      POSTGRES_PASSWORD: ${VERIFY_POSTGRES_PASSWORD:-verify_password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres-translator-verify:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${VERIFY_TRANSLATOR_DB_NAME:-libnode_translator_verify}
+      POSTGRES_USER: ${VERIFY_POSTGRES_USER:-verify_user}
+      POSTGRES_PASSWORD: ${VERIFY_POSTGRES_PASSWORD:-verify_password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis-verify:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres-reader-verify;Port=5432;Database=${VERIFY_READER_DB_NAME:-libnode_verify};Username=${VERIFY_POSTGRES_USER:-verify_user};Password=${VERIFY_POSTGRES_PASSWORD:-verify_password}
+      JwtSettings__Key: ${VERIFY_JWT_SIGNING_KEY:-placeholder-jwt-signing-key-for-verify-only}
+      IntegrationAuth__TranslatorApiKey: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      Cors__Origins__0: ${VERIFY_CORS_ORIGIN:-http://localhost:13001}
+    depends_on:
+      postgres-reader-verify:
+        condition: service_healthy
+
+  web:
+    environment:
+      NUXT_PUBLIC_API_BASE: http://api:8080
+      NUXT_PUBLIC_API_BASE_CLIENT: ${API_BASE_URL:-http://localhost:15000}
+    depends_on:
+      api:
+        condition: service_started
+
+  translator-init:
+    environment:
+      DATABASE_URL: postgresql://${VERIFY_POSTGRES_USER:-verify_user}:${VERIFY_POSTGRES_PASSWORD:-verify_password}@postgres-translator-verify:5432/${VERIFY_TRANSLATOR_DB_NAME:-libnode_translator_verify}
+      REDIS_URL: redis://redis-verify:6379
+      READER_API_MOCK: "true"
+      READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+    depends_on:
+      postgres-translator-verify:
+        condition: service_healthy
+      redis-verify:
+        condition: service_healthy
+
+  translator-web:
+    environment:
+      DATABASE_URL: postgresql://${VERIFY_POSTGRES_USER:-verify_user}:${VERIFY_POSTGRES_PASSWORD:-verify_password}@postgres-translator-verify:5432/${VERIFY_TRANSLATOR_DB_NAME:-libnode_translator_verify}
+      REDIS_URL: redis://redis-verify:6379
+      READER_API_MOCK: "true"
+      READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+    depends_on:
+      translator-init:
+        condition: service_completed_successfully
+      redis-verify:
+        condition: service_healthy
+
+  translator-worker:
+    environment:
+      DATABASE_URL: postgresql://${VERIFY_POSTGRES_USER:-verify_user}:${VERIFY_POSTGRES_PASSWORD:-verify_password}@postgres-translator-verify:5432/${VERIFY_TRANSLATOR_DB_NAME:-libnode_translator_verify}
+      REDIS_URL: redis://redis-verify:6379
+      READER_API_MOCK: "true"
+      READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+    depends_on:
+      translator-init:
+        condition: service_completed_successfully
+      redis-verify:
+        condition: service_healthy
