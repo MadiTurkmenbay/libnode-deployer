@@ -12,10 +12,21 @@ x-translator-env: &translator-env
   OPENAI_API_KEY: ${TRANSLATOR_OPENAI_API_KEY:-}
   OPENAI_BASE_URL: ${TRANSLATOR_OPENAI_BASE_URL:-https://api.openai.com/v1}
   OPENAI_MODEL: ${TRANSLATOR_OPENAI_MODEL:-gpt-5-mini}
+  OPENAI_MAX_TOKENS: ${TRANSLATOR_OPENAI_MAX_TOKENS:-32000}
   READER_API_BASE_URL: ${TRANSLATOR_READER_API_BASE_URL:-http://api:8080/api/reader}
   READER_API_KEY: ${TRANSLATOR_API_KEY}
   READER_API_MOCK: ${TRANSLATOR_READER_API_MOCK:-false}
-  PLAYWRIGHT_HEADLESS: ${TRANSLATOR_PLAYWRIGHT_HEADLESS:-true}
+  PLAYWRIGHT_HEADLESS: ${TRANSLATOR_PLAYWRIGHT_HEADLESS:-new}
+  PLAYWRIGHT_BROWSER_NAME: ${TRANSLATOR_PLAYWRIGHT_BROWSER_NAME:-chromium}
+  PLAYWRIGHT_BROWSER_CHANNEL: ${TRANSLATOR_PLAYWRIGHT_BROWSER_CHANNEL:-}
+  PLAYWRIGHT_EXECUTABLE_PATH: ${TRANSLATOR_PLAYWRIGHT_EXECUTABLE_PATH:-}
+  PLAYWRIGHT_STORAGE_STATE_PATH: ${TRANSLATOR_PLAYWRIGHT_STORAGE_STATE_PATH:-/data/playwright/novellive.json}
+  PLAYWRIGHT_USER_DATA_DIR: ${TRANSLATOR_PLAYWRIGHT_USER_DATA_DIR-}
+  PLAYWRIGHT_STEALTH: ${TRANSLATOR_PLAYWRIGHT_STEALTH:-true}
+  PLAYWRIGHT_PROXY_SERVER: ${TRANSLATOR_PLAYWRIGHT_PROXY_SERVER:-}
+  PLAYWRIGHT_PROXY_USERNAME: ${TRANSLATOR_PLAYWRIGHT_PROXY_USERNAME:-}
+  PLAYWRIGHT_PROXY_PASSWORD: ${TRANSLATOR_PLAYWRIGHT_PROXY_PASSWORD:-}
+  CHAPTER_FETCH_RATE_LIMIT_MS: ${TRANSLATOR_CHAPTER_FETCH_RATE_LIMIT_MS:-8000}
   BASIC_AUTH_ENABLED: ${TRANSLATOR_BASIC_AUTH_ENABLED:-false}
   BASIC_AUTH_USERNAME: ${TRANSLATOR_BASIC_AUTH_USERNAME:-admin}
   BASIC_AUTH_PASSWORD: ${TRANSLATOR_BASIC_AUTH_PASSWORD:-admin}
@@ -25,24 +36,26 @@ services:
     build:
       context: ../libnode
       dockerfile: Dockerfile
-    container_name: libnode-api
+    container_name: ${API_CONTAINER_NAME:-libnode-api}
     ports:
-      - "5000:8080"
+      - "${API_HOST_PORT:-5000}:8080"
     environment:
       - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
       - JwtSettings__Key=${JWT_SIGNING_KEY}
       - IntegrationAuth__TranslatorApiKey=${TRANSLATOR_API_KEY}
       - Cors__Origins__0=${CORS_ORIGIN}
+      - Cors__Origins__1=http://localhost:3001
+      - Cors__Origins__2=http://127.0.0.1:3001
       - ASPNETCORE_ENVIRONMENT=Development
     restart: unless-stopped
 
   web:
     build:
-      context: ../libnode-fronted
+      context: ../libnode-frontend
       dockerfile: Dockerfile
-    container_name: libnode-web
+    container_name: ${WEB_CONTAINER_NAME:-libnode-web}
     ports:
-      - "3000:3000"
+      - "${WEB_HOST_PORT:-3001}:3000"
     environment:
       - NUXT_PUBLIC_API_BASE=http://api:8080
       - NUXT_PUBLIC_API_BASE_CLIENT=${API_BASE_URL}
@@ -54,7 +67,7 @@ services:
     build:
       <<: *translator-build
       target: tools
-    container_name: libnode-translator-init
+    container_name: ${TRANSLATOR_INIT_CONTAINER_NAME:-libnode-translator-init}
     environment: *translator-env
     command: ["sh", "-c", "npx prisma migrate deploy && npm run seed"]
 
@@ -62,10 +75,12 @@ services:
     build:
       <<: *translator-build
       target: runtime
-    container_name: libnode-translator-web
+    container_name: ${TRANSLATOR_WEB_CONTAINER_NAME:-libnode-translator-web}
     ports:
       - "${TRANSLATOR_WEB_PORT:-3005}:3005"
     environment: *translator-env
+    volumes:
+      - ${TRANSLATOR_PLAYWRIGHT_DATA_DIR:-./data/translator-playwright}:/data/playwright
     depends_on:
       translator-init:
         condition: service_completed_successfully
@@ -75,8 +90,10 @@ services:
     build:
       <<: *translator-build
       target: runtime
-    container_name: libnode-translator-worker
+    container_name: ${TRANSLATOR_WORKER_CONTAINER_NAME:-libnode-translator-worker}
     environment: *translator-env
+    volumes:
+      - ${TRANSLATOR_PLAYWRIGHT_DATA_DIR:-./data/translator-playwright}:/data/playwright
     depends_on:
       translator-init:
         condition: service_completed_successfully
