@@ -58,6 +58,23 @@ services:
         condition: service_healthy
     command: ["sh", "-c", "dotnet tool restore && dotnet ef database update"]
 
+  api-tests:
+    build:
+      context: ../libnode
+      dockerfile: Dockerfile
+      target: build
+    environment:
+      ASPNETCORE_ENVIRONMENT: Testing
+      ConnectionStrings__DefaultConnection: Host=postgres-reader-verify;Port=5432;Database=${VERIFY_READER_DB_NAME:-libnode_verify};Username=${VERIFY_POSTGRES_USER:-verify_user};Password=${VERIFY_POSTGRES_PASSWORD:-verify_password}
+      JwtSettings__Key: ${VERIFY_JWT_SIGNING_KEY:-placeholder-jwt-signing-key-for-verify-only}
+      IntegrationAuth__TranslatorApiKey: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      Cors__Origins__0: ${VERIFY_CORS_ORIGIN:-http://localhost:13001}
+      RateLimiting__Enabled: "false"
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
+    command: ["sh", "-c", "dotnet restore LibNode.Api.Tests/LibNode.Api.Tests.csproj && dotnet test LibNode.Api.Tests/LibNode.Api.Tests.csproj --no-restore --verbosity normal"]
+
   web:
     environment:
       NUXT_PUBLIC_API_BASE: http://api:8080

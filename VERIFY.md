@@ -47,6 +47,18 @@ docker compose -p libnode_verify --env-file .env.verify.example -f docker-compos
 docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
 ```
 
+## Backend Regression Tests
+
+Run the backend xUnit regression suite against the same disposable PostgreSQL instance that `api-migrate` uses.
+
+```bash
+# Run migrations and then tests
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
+
+# Clean up the disposable environment
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+```
+
 ## Disposable Dependency Smoke
 
 Start only the disposable PostgreSQL and Redis dependencies, inspect state locally, then clean them up. Do not paste logs or expanded config into shared summaries.
