@@ -32,6 +32,21 @@ Optional build smoke for affected images:
 docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml build api web translator-init translator-web translator-worker
 ```
 
+## Backend Migration Verification
+
+Run migrations against a disposable PostgreSQL instance. The `api-migrate` service applies all migrations before the main `api` service starts.
+
+```bash
+# Validate configuration (does not print expanded config or secrets)
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml config --quiet
+
+# Apply migrations to a clean verify database
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
+
+# Clean up the disposable environment
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+```
+
 ## Disposable Dependency Smoke
 
 Start only the disposable PostgreSQL and Redis dependencies, inspect state locally, then clean them up. Do not paste logs or expanded config into shared summaries.

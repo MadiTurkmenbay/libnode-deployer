@@ -40,6 +40,23 @@ services:
     depends_on:
       postgres-reader-verify:
         condition: service_healthy
+      api-migrate:
+        condition: service_completed_successfully
+
+  api-migrate:
+    build:
+      context: ../libnode
+      dockerfile: Dockerfile
+      target: build
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres-reader-verify;Port=5432;Database=${VERIFY_READER_DB_NAME:-libnode_verify};Username=${VERIFY_POSTGRES_USER:-verify_user};Password=${VERIFY_POSTGRES_PASSWORD:-verify_password}
+      JwtSettings__Key: ${VERIFY_JWT_SIGNING_KEY:-placeholder-jwt-signing-key-for-verify-only}
+      IntegrationAuth__TranslatorApiKey: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
+      Cors__Origins__0: ${VERIFY_CORS_ORIGIN:-http://localhost:13001}
+    depends_on:
+      postgres-reader-verify:
+        condition: service_healthy
+    command: ["sh", "-c", "dotnet tool restore && dotnet ef database update"]
 
   web:
     environment:
