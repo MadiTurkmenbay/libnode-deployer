@@ -1,5 +1,16 @@
 # AI_INSTRUCTIONS
 
+## Deployer Hardening Conventions
+
+- [CRITICAL] Canonical `docker-compose.yml` must run the backend API with `ASPNETCORE_ENVIRONMENT=Production` and set production-like defaults for `Swagger__Enabled=false`, `ForwardedHeaders__Enabled=true`, `RateLimiting__Enabled=true`, and `AllowedHosts`.
+- [CRITICAL] `docker-compose.dev.yml` is the only file that overrides these to development-friendly values (`ASPNETCORE_ENVIRONMENT=Development`, `Swagger__Enabled=true`, `RateLimiting__Enabled=false`, `ForwardedHeaders__Enabled=false`, `AllowedHosts=*`, `BASIC_AUTH_ENABLED=false`).
+- [MANDATORY] Rate limiter environment variables use ASP.NET Core double-underscore convention: `RateLimiting__Enabled`, `RateLimiting__Auth__PermitLimit`, `RateLimiting__Auth__WindowMinutes`, `RateLimiting__Ingest__PermitLimit`, `RateLimiting__Ingest__WindowMinutes`.
+- [MANDATORY] `AllowedHosts` is set via env var (e.g., `AllowedHosts=libnode-api`) and operators must override it to their production API hostname. Never leave it as `*` in production compose.
+- [MANDATORY] `TRANSLATOR_BASIC_AUTH_ENABLED=true` and explicit non-default credentials are required in production; `admin/admin`, `placeholder-*`, `changeme`, and empty strings are rejected by translator startup validation.
+- [MANDATORY] `TRANSLATOR_CSRF_SECRET` must be set to a high-entropy value in production; do not use the fallback dev secret.
+- [MANDATORY] Use `docker compose --env-file .env.example config --quiet` for validation; never paste resolved `docker compose config` output because it may contain env values.
+- [MANDATORY] Local verification targets a trusted local subnet. Document any trusted-subnet assumptions separately from production-like hardening expectations.
+
 ## Workspace Guardrails
 
 - Read `/home/qustust/projects/libnodeProject/AGENTS.md` before this file.
