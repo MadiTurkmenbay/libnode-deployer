@@ -11,36 +11,35 @@ Docker Compose оркестрация для всего стека LibNode: back
 
 ## Быстрый старт (production-like)
 
-> Предполагается, что у вас уже есть внешние PostgreSQL и Redis, а `.env` файл заполнен.
+> Предполагается, что у вас уже есть внешние PostgreSQL и Redis, а `.env` файл заполнен. Все операции делаются через `Makefile` — это основной интерфейс управления стеком.
 
 ```bash
 cd /home/qustust/projects/libnodeProject/libnode-deployer
 
 # 1. Проверить конфигурацию (без вывода expanded config)
-docker compose --env-file .env config --quiet
+make verify
 
-# 2. Пересобрать все образы
-docker compose --env-file .env build --parallel
-
-# 3. Запустить стек
+# 2. Перезапустить стек с пересборкой образов
+#    api-migrate автоматически применит EF Core миграции
 #    translator-init сделает Prisma migrate + seed и остановится
-#    api поднимется после того, как init отработает
-#    translator-web и translator-worker тоже зависят от init
-docker compose --env-file .env up -d
+#    api поднимется только после успешного api-migrate
+make restart
 
-# 4. Проверить сервисы
+# 3. Проверить сервисы
 curl -sS http://localhost:5000/api/books?limit=1
 curl -sS http://localhost:3001/          # Nuxt frontend
 curl -sS http://localhost:3005/health    # translator web
 
-# 5. Смотреть логи
-docker compose --env-file .env logs -f api
-docker compose --env-file .env logs -f web
-docker compose --env-file .env logs -f translator-worker
+# 4. Смотреть логи
+make logs ARGS='-f api'
+make logs ARGS='-f web'
+make logs ARGS='-f translator-worker'
 
-# 6. Остановить
-docker compose --env-file .env down
+# 5. Остановить
+make down
 ```
+
+> **Почему `make restart`?** После любого изменения в `libnode/`, `libnode-frontend/` или `libnode-translator/` нужно пересобрать Docker-образы и перезапустить контейнеры. `make restart` делает это одной командой: `down` → `build --parallel` → `up -d` с автоматическими миграциями.
 
 ## Быстрый старт (локальная разработка)
 
@@ -53,6 +52,8 @@ docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.d
 # Остановить
 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml down
 ```
+
+Для dev-окружения пока нет `make`-target'ов с `docker-compose.dev.yml`, поэтому используйте прямой `docker compose` как выше.
 
 ## Настройка `.env` для продакшена
 
