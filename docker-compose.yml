@@ -70,7 +70,7 @@ services:
       - RateLimiting__Auth__WindowMinutes=${RateLimiting__Auth__WindowMinutes:-1}
       - RateLimiting__Ingest__PermitLimit=${RateLimiting__Ingest__PermitLimit:-60}
       - RateLimiting__Ingest__WindowMinutes=${RateLimiting__Ingest__WindowMinutes:-1}
-      - AllowedHosts=${AllowedHosts:-libnode-api}
+      - AllowedHosts=api;${AllowedHosts:-libnode-api}
     depends_on:
       api-migrate:
         condition: service_completed_successfully
