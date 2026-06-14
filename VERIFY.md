@@ -125,6 +125,81 @@ docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f
 
 Report command and pass/fail only; do not paste resolved env values, full Compose output, or secret-bearing logs.
 
+## Production Deployment with External Domain
+
+When LibNode is served through a reverse proxy (Nginx, Traefik, Caddy) on a public domain,
+the canonical Compose defaults must be overridden in the real `.env` file:
+
+```bash
+# libnode-deployer/.env (local-only, ignored by git)
+CORS_ORIGIN=https://libnode.qustust.ru
+API_BASE_URL=https://libnode.qustust.ru
+AllowedHosts=libnode.qustust.ru
+ForwardedHeaders__Enabled=true
+Swagger__Enabled=false
+```
+
+Key points:
+
+- `AllowedHosts` must match the `Host` header that the reverse proxy sends to the backend.
+  If the browser is served at `https://libnode.qustust.ru/` and the proxy forwards requests
+  to the `api` container, Kestrel receives `Host: libnode.qustust.ru`. With the default
+  `AllowedHosts=libnode-api`, Kestrel rejects the request with `400 Bad Request - Invalid Hostname`.
+  The fix is to set `AllowedHosts=libnode.qustust.ru` (or `*` only for local dev).
+- `ForwardedHeaders__Enabled=true` lets the API see the original client protocol and host
+  through `X-Forwarded-Proto` / `X-Forwarded-Host` headers. Configure the reverse proxy to
+  forward these headers and trust the Docker network (the default clears `KnownProxies`/`KnownNetworks`).
+- `CORS_ORIGIN` must be the exact HTTPS origin the browser uses; otherwise the frontend cannot
+  call the API from the client side.
+- `API_BASE_URL` is the browser-facing API URL. If the API is exposed on a separate subdomain,
+  set it to that subdomain (e.g., `https://api.libnode.qustust.ru`).
+
+Example minimal Nginx reverse-proxy snippet for a single-domain setup:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name libnode.qustust.ru;
+
+    # SSL certificates here
+
+    location / {
+        proxy_pass http://127.0.0.1:3001;  # Nuxt frontend
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000;  # ASP.NET backend
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    location /reader/ {
+        proxy_pass http://127.0.0.1:5000;  # translator publishing ingest endpoint
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+For the translator admin, expose `translator-web` on a separate port or host
+(e.g., `https://translator.libnode.qustust.ru` mapped to host port `3005`):
+
+```bash
+TRANSLATOR_WEB_PORT=3005
+TRANSLATOR_BASIC_AUTH_ENABLED=true
+TRANSLATOR_BASIC_AUTH_USERNAME=your-admin-user
+TRANSLATOR_BASIC_AUTH_PASSWORD=your-strong-password
+TRANSLATOR_CSRF_SECRET=your-high-entropy-secret
+```
+
 ## Production-Like Hardening (Phases 2–5)
 
 Since Phase 2, the canonical `docker-compose.yml` defaults to production-like runtime:
@@ -134,7 +209,7 @@ Since Phase 2, the canonical `docker-compose.yml` defaults to production-like ru
 - Rate limiting active on `/api/auth/*` (10 req/min) and `/api/reader/*` (60 req/min).
 - Translator unknown errors return generic messages; internal details logged server-side.
 - Translator mutating web forms have CSRF double-submit cookie protection.
-- `AllowedHosts` is set to `libnode-api` by default; operators should override this to their production API hostname.
+- `AllowedHosts` is set to `libnode-api` by default; operators must override this to their production API hostname.
 
 Use `docker-compose.dev.yml` to restore development-friendly behavior for local iteration:
 ```bash
