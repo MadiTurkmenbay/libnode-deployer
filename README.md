@@ -144,28 +144,44 @@ Translator admin лучше вынести на отдельный порт/до
 
 В NPM по умолчанию заголовок `Host` может заменяться на upstream-имя или IP. Если backend возвращает `400 Bad Request - Invalid Hostname`, хотя в `.env` уже прописан `AllowedHosts=libnode.qustust.ru`, значит до API доходит не тот `Host`.
 
+**Главное:** не проксируйте `/api/*` через frontend-контейнер (`web:3000`). Nuxt при проксировании во внутреннюю Docker-сеть (`api:8080`) меняет `Host` на `api:8080`, и Kestrel отказывает. Правильно: NPM сам маршрутизирует `/api/*` напрямую на backend (`api:5000`).
+
 Проверка локально (должно вернуть 200):
 
 ```bash
 curl -H "Host: libnode.qustust.ru" http://localhost:5000/api/books?limit=1
 ```
 
-Если сработало, а через NPM нет — проблема в заголовке. Настройка NPM:
+Если сработало, а через NPM нет — проблема в маршрутизации. Настройка NPM:
 
 1. Создайте Proxy Host для `libnode.qustust.ru`.
-2. **Forward Hostname / IP** — либо `127.0.0.1` (если NPM на той же машине), либо `api` (если NPM подключён к Docker-сети `libnode-deployer`).
-3. **Forward Port** — `5000` для backend, `3001` для frontend, `3005` для translator.
-4. Вкладка **Advanced** → добавьте в конец:
+2. **Forward Hostname / IP** — IP хоста, где крутится Docker (например, `100.126.73.77`).
+3. **Forward Port** — `3001` (frontend).
+4. Вкладка **Advanced** → добавьте custom locations:
 
 ```nginx
-proxy_set_header Host $host;
-proxy_set_header X-Forwarded-Host $host;
-proxy_set_header X-Forwarded-Proto $scheme;
-proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-proxy_set_header X-Real-IP $remote_addr;
+location /api/ {
+    proxy_pass http://100.126.73.77:5000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+location /reader/ {
+    proxy_pass http://100.126.73.77:5000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+
+# Для /assets/ и остальных путей — остаётся на frontend (NPM сделает сам по Forward IP/Port)
 ```
 
-5. Если NPM и backend в разных Docker-сетях, убедитесь, что NPM видит контейнеры по IP хоста или `host.docker.internal`. Например, для `api` используйте `192.168.1.10:5000` вместо `api:8080`.
+5. Если NPM и backend в одной Docker-сети, можно использовать `http://api:8080` вместо `100.126.73.77:5000`. Но в типичном случае NPM находится вне сети `libnode-deployer`, поэтому используйте IP хоста и опубликованные порты (`5000`, `3001`, `3005`).
 
 6. Сохраните и проверьте:
 
@@ -174,6 +190,23 @@ curl -sS https://libnode.qustust.ru/api/books?limit=1
 ```
 
 Должен вернуть JSON, а не `400 Bad Request - Invalid Hostname`.
+
+### Альтернатива: отдельный API-домен
+
+Если не хотите возиться с custom locations в NPM, создайте отдельный поддомен:
+
+- `api.libnode.qustust.ru` → `100.126.73.77:5000`
+- `libnode.qustust.ru` → `100.126.73.77:3001`
+
+В `libnode-deployer/.env`:
+
+```bash
+API_BASE_URL=https://api.libnode.qustust.ru
+CORS_ORIGIN=https://libnode.qustust.ru
+AllowedHosts=api.libnode.qustust.ru
+```
+
+Тогда браузер будет ходить на API напрямую, минуя frontend-прокси, и проблемы с `Host` не будет.
 
 ## Проверка перед релизом
 
