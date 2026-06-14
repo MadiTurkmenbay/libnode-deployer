@@ -37,6 +37,7 @@ services:
       JwtSettings__Key: ${VERIFY_JWT_SIGNING_KEY:-placeholder-jwt-signing-key-for-verify-only}
       IntegrationAuth__TranslatorApiKey: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
       Cors__Origins__0: ${VERIFY_CORS_ORIGIN:-http://localhost:13001}
+      AllowedHosts: "*"
     depends_on:
       postgres-reader-verify:
         condition: service_healthy
@@ -90,6 +91,10 @@ services:
       READER_API_MOCK: "true"
       READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
       OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+      BASIC_AUTH_ENABLED: "true"
+      BASIC_AUTH_USERNAME: ${VERIFY_TRANSLATOR_BASIC_AUTH_USERNAME:-verify-translator-user}
+      BASIC_AUTH_PASSWORD: ${VERIFY_TRANSLATOR_BASIC_AUTH_PASSWORD:-verify-translator-password-123}
+      OUTBOUND_ALLOW_PRIVATE_URLS: "true"
     depends_on:
       postgres-translator-verify:
         condition: service_healthy
@@ -103,6 +108,10 @@ services:
       READER_API_MOCK: "true"
       READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
       OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+      BASIC_AUTH_ENABLED: "true"
+      BASIC_AUTH_USERNAME: ${VERIFY_TRANSLATOR_BASIC_AUTH_USERNAME:-verify-translator-user}
+      BASIC_AUTH_PASSWORD: ${VERIFY_TRANSLATOR_BASIC_AUTH_PASSWORD:-verify-translator-password-123}
+      OUTBOUND_ALLOW_PRIVATE_URLS: "true"
     depends_on:
       translator-init:
         condition: service_completed_successfully
@@ -116,6 +125,10 @@ services:
       READER_API_MOCK: "true"
       READER_API_KEY: ${VERIFY_TRANSLATOR_API_KEY:-placeholder-translator-api-key-for-verify-only}
       OPENAI_API_KEY: ${VERIFY_TRANSLATOR_OPENAI_API_KEY:-placeholder-not-used}
+      BASIC_AUTH_ENABLED: "true"
+      BASIC_AUTH_USERNAME: ${VERIFY_TRANSLATOR_BASIC_AUTH_USERNAME:-verify-translator-user}
+      BASIC_AUTH_PASSWORD: ${VERIFY_TRANSLATOR_BASIC_AUTH_PASSWORD:-verify-translator-password-123}
+      OUTBOUND_ALLOW_PRIVATE_URLS: "true"
     depends_on:
       translator-init:
         condition: service_completed_successfully

@@ -87,7 +87,45 @@ LibNode is currently operated on a trusted local subnet. The following assumptio
 - Frontend `auth_token` cookie is JavaScript-readable (not HttpOnly). XSS hardening is deferred to v2.
 - Translator Basic Auth is single-user; no RBAC beyond admin/non-admin distinction.
 
-## Production-Like Hardening (Phase 2)
+## Full Phase 6 Verification Matrix
+
+Run the complete v1 closeout matrix against the verify overlay. Use the actual local `.env.verify` file (ignored, never paste its contents).
+
+```bash
+# 1. Validate canonical Compose (no expanded output)
+docker compose --env-file .env.example config --quiet
+
+# 2. Validate verify overlay with placeholder example
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml config --quiet
+
+# 3. Build all images
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml build --parallel api web translator-init translator-web translator-worker
+
+# 4. Backend: apply migrations to clean disposable PostgreSQL
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
+
+# 5. Backend: run regression tests
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
+
+# 6. Translator: run migrations and seed
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
+
+# 7. Translator: start web and worker
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
+
+# 8. Translator web health check
+curl -sS http://localhost:13005/health
+
+# 9. Translator worker startup log (should show startup without external job activity)
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml logs --tail=20 translator-worker
+
+# 10. Clean up the disposable environment
+docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+```
+
+Report command and pass/fail only; do not paste resolved env values, full Compose output, or secret-bearing logs.
+
+## Production-Like Hardening (Phases 2–5)
 
 Since Phase 2, the canonical `docker-compose.yml` defaults to production-like runtime:
 
@@ -102,6 +140,31 @@ Use `docker-compose.dev.yml` to restore development-friendly behavior for local 
 ```bash
 docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.dev.yml up
 ```
+
+## Stabilization Decisions and Honest Scope
+
+### What v1 Stabilization Proves
+
+- **Workspace discipline:** four separate implementation repos, parent `.planning/` local-only, Docker-first verification, and repo-specific status checks.
+- **Deployment defaults:** API runs in `Production`, Swagger/ForwardedHeaders/RateLimiting are gated, translator fails closed with non-default credentials.
+- **Auth surfaces:** JWT bearer auth on backend; client-created `auth_token` cookie with conditional `Secure` and `SameSite=Lax` on frontend; translator Basic Auth + CSRF for web forms.
+- **Backend invariants:** EF migrations reconcile cleanly; collection add/move is idempotent/atomic; reading-progress upsert handles concurrent first writes; tags/categories protected by unique DB constraints.
+- **Reader contracts:** `ChapterDetailDto` exposes `previousChapterId`/`nextChapterId`; catalog uses `CursorStringPagedResult<T>` with deterministic sort-value + ID tie-breakers.
+- **Frontend integration:** `useApiFetch` is the single API layer; `useCatalogCursor.ts` owns catalog state; DTOs mirror backend contracts.
+- **Translator operational reliability:** outbound timeouts/size limits, URL policy with private-URL escape hatch, safe `ExternalServiceError` mapping, Playwright sandbox opt-in, chunking wired into translation flow.
+- **Test coverage:** backend xUnit regression suite, translator Vitest/Supertest suite (auth, CSRF, outbound, chunking), and Docker smoke checks for all services.
+
+### What v1 Stabilization Does Not Prove
+
+- **Server-set HttpOnly cookies / refresh-token rotation** (v2: AUTH2-01, AUTH2-02).
+- **Comprehensive SSRF sandbox / allowlist/denylist for outbound networking** (v2: TRSEC2-02). The current URL policy blocks IP-based private/loopback addresses but does not block hostname-based internal Docker traffic.
+- **Production server migration with TLS/reverse proxy** (v2: PROD-01, PROD-02).
+- **CI/CD automation** (v2: PROD-03).
+- **Operational dashboards and queue reconciliation tooling** (v2: OBS-01, OBS-02).
+- **Automated backend/frontend contract sync** (v2: CONTRACT-01).
+- **Full UI/UX redesign or RBAC beyond single-admin Basic Auth** (v2: UI-01, ADMIN-01, TRSEC2-01).
+
+These are explicitly deferred so v1 remains a focused stabilization milestone.
 
 ## What Phase 2 Does Not Prove
 
