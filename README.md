@@ -140,6 +140,41 @@ server {
 
 Translator admin лучше вынести на отдельный порт/домен (`https://translator.libnode.qustust.ru`, проксируется на `127.0.0.1:3005`).
 
+### Nginx Proxy Manager (NPM)
+
+В NPM по умолчанию заголовок `Host` может заменяться на upstream-имя или IP. Если backend возвращает `400 Bad Request - Invalid Hostname`, хотя в `.env` уже прописан `AllowedHosts=libnode.qustust.ru`, значит до API доходит не тот `Host`.
+
+Проверка локально (должно вернуть 200):
+
+```bash
+curl -H "Host: libnode.qustust.ru" http://localhost:5000/api/books?limit=1
+```
+
+Если сработало, а через NPM нет — проблема в заголовке. Настройка NPM:
+
+1. Создайте Proxy Host для `libnode.qustust.ru`.
+2. **Forward Hostname / IP** — либо `127.0.0.1` (если NPM на той же машине), либо `api` (если NPM подключён к Docker-сети `libnode-deployer`).
+3. **Forward Port** — `5000` для backend, `3001` для frontend, `3005` для translator.
+4. Вкладка **Advanced** → добавьте в конец:
+
+```nginx
+proxy_set_header Host $host;
+proxy_set_header X-Forwarded-Host $host;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Real-IP $remote_addr;
+```
+
+5. Если NPM и backend в разных Docker-сетях, убедитесь, что NPM видит контейнеры по IP хоста или `host.docker.internal`. Например, для `api` используйте `192.168.1.10:5000` вместо `api:8080`.
+
+6. Сохраните и проверьте:
+
+```bash
+curl -sS https://libnode.qustust.ru/api/books?limit=1
+```
+
+Должен вернуть JSON, а не `400 Bad Request - Invalid Hostname`.
+
 ## Проверка перед релизом
 
 Полная матрица верификации описана в `VERIFY.md`. Кратко:
