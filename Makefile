@@ -13,6 +13,7 @@ help:
 	@echo "  make down     — stop the stack"
 	@echo "  make restart  — rebuild images and restart the stack"
 	@echo "  make build    — rebuild all images"
+	@echo "  make migrate  — apply EF Core migrations to the database"
 	@echo "  make logs     — follow logs (use ARGS='-f api' to target a service)"
 	@echo "  make status   — show running containers"
 	@echo "  make verify   — validate compose config without exposing secrets"
@@ -29,6 +30,9 @@ restart: down build
 
 build:
 	$(COMPOSE) build --parallel
+
+migrate:
+	$(COMPOSE) run --rm api-migrate
 
 logs:
 	$(COMPOSE) logs $(ARGS)

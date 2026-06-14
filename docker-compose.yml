@@ -33,6 +33,21 @@ x-translator-env: &translator-env
   CSRF_SECRET: ${TRANSLATOR_CSRF_SECRET:-change-me-in-production}
 
 services:
+  api-migrate:
+    build:
+      context: ../libnode
+      dockerfile: Dockerfile
+      target: build
+    container_name: ${API_CONTAINER_NAME:-libnode-api-migrate}
+    environment:
+      - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
+      - JwtSettings__Key=${JWT_SIGNING_KEY}
+      - IntegrationAuth__TranslatorApiKey=${TRANSLATOR_API_KEY}
+      - Cors__Origins__0=${CORS_ORIGIN}
+      - ASPNETCORE_ENVIRONMENT=Production
+    command: ["sh", "-c", "dotnet tool restore && dotnet ef database update"]
+    restart: "no"
+
   api:
     build:
       context: ../libnode
@@ -56,6 +71,9 @@ services:
       - RateLimiting__Ingest__PermitLimit=${RateLimiting__Ingest__PermitLimit:-60}
       - RateLimiting__Ingest__WindowMinutes=${RateLimiting__Ingest__WindowMinutes:-1}
       - AllowedHosts=${AllowedHosts:-libnode-api}
+    depends_on:
+      api-migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   web:
