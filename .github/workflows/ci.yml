@@ -1,0 +1,27 @@
+name: deployer-ci
+
+on:
+  push:
+    branches: [main, "auto/**", "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Seed env from example (placeholders only)
+        run: cp .env.example .env
+
+      - name: Validate canonical compose config (no secret output)
+        run: docker compose -f docker-compose.yml config --quiet
+
+      - name: Validate verify overlay
+        run: docker compose -f docker-compose.yml -f docker-compose.verify.yml --env-file .env.verify.example config --quiet
+        continue-on-error: true
+
+      - name: Validate dev overlay
+        run: docker compose -f docker-compose.yml -f docker-compose.dev.yml config --quiet
+        continue-on-error: true
