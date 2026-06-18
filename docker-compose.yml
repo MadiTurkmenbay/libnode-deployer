@@ -38,7 +38,7 @@ services:
       context: ../libnode
       dockerfile: Dockerfile
       target: build
-    container_name: ${API_CONTAINER_NAME:-libnode-api-migrate}
+    container_name: ${API_MIGRATE_CONTAINER_NAME:-libnode-api-migrate}
     environment:
       - ConnectionStrings__DefaultConnection=${DB_CONNECTION_STRING}
       - JwtSettings__Key=${JWT_SIGNING_KEY}
@@ -71,6 +71,11 @@ services:
       - RateLimiting__Ingest__PermitLimit=${RateLimiting__Ingest__PermitLimit:-60}
       - RateLimiting__Ingest__WindowMinutes=${RateLimiting__Ingest__WindowMinutes:-1}
       - AllowedHosts=api;${AllowedHosts:-libnode-api}
+      - Storage__Endpoint=${MINIO_INTERNAL_ENDPOINT:-http://minio:9000}
+      - Storage__AccessKey=${MINIO_ROOT_USER}
+      - Storage__SecretKey=${MINIO_ROOT_PASSWORD}
+      - Storage__Bucket=${MINIO_BUCKET:-libnode}
+      - Storage__PublicUrl=${MINIO_PUBLIC_URL}
     depends_on:
       api-migrate:
         condition: service_completed_successfully
@@ -89,6 +94,39 @@ services:
     depends_on:
       - api
     restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ${MINIO_CONTAINER_NAME:-libnode-minio}
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - ./data/minio:/data
+    restart: unless-stopped
+
+  # Одноразовая инициализация: создаёт бакет и делает его публично читаемым (для обложек/аватаров).
+  minio-init:
+    image: minio/mc:latest
+    container_name: ${MINIO_INIT_CONTAINER_NAME:-libnode-minio-init}
+    depends_on:
+      - minio
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+      - MINIO_BUCKET=${MINIO_BUCKET:-libnode}
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\"; do echo 'waiting for minio...'; sleep 2; done;
+      mc mb --ignore-existing local/$$MINIO_BUCKET;
+      mc anonymous set download local/$$MINIO_BUCKET;
+      echo 'minio bucket ready';
+      "
+    restart: "no"
 
   translator-init:
     build:
