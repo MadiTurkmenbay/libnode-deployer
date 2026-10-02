@@ -44,10 +44,11 @@ verify:
 	$(COMPOSE) config --quiet
 
 # Run the full Phase 6 verification matrix against the verify overlay.
-# Requires a real .env.verify file (ignored by git).
+# Uses placeholder-only .env.verify.example by default; override VERIFY_ENV_FILE locally if needed.
+VERIFY_ENV_FILE ?= .env.verify.example
 test:
-	docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
-	docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
-	docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
-	docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
-	docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
+	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
+	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
+	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
+	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans

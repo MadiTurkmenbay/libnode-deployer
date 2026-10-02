@@ -84,12 +84,12 @@ LibNode is currently operated on a trusted local subnet. The following assumptio
 - Docker Compose network is internal; containers trust each other's traffic.
 - ForwardedHeaders middleware clears KnownProxies/KnownNetworks (trust Docker internal network).
 - Rate limiter partitions by IP — this is practical abuse control, not DDoS defense.
-- Frontend `auth_token` cookie is JavaScript-readable (not HttpOnly). XSS hardening is deferred to v2.
+- Frontend `auth_token` cookie is HttpOnly and set by Nuxt BFF auth routes; browser JavaScript must not read or receive JWTs.
 - Translator Basic Auth is single-user; no RBAC beyond admin/non-admin distinction.
 
 ## Full Phase 6 Verification Matrix
 
-Run the complete v1 closeout matrix against the verify overlay. Use the actual local `.env.verify` file (ignored, never paste its contents).
+Run the complete v1 closeout matrix against the verify overlay. The checked-in `.env.verify.example` is placeholder-only; if you override it locally with `.env.verify`, never paste its contents.
 
 ```bash
 # 1. Validate canonical Compose (no expanded output)
@@ -99,28 +99,28 @@ docker compose --env-file .env.example config --quiet
 docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml config --quiet
 
 # 3. Build all images
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml build --parallel api web translator-init translator-web translator-worker
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml build --parallel api web translator-init translator-web translator-worker
 
 # 4. Backend: apply migrations to clean disposable PostgreSQL
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
 
 # 5. Backend: run regression tests
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
 
 # 6. Translator: run migrations and seed
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
 
 # 7. Translator: start web and worker
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
 
 # 8. Translator web health check
 curl -sS http://localhost:13005/health
 
-# 9. Translator worker startup log (should show startup without external job activity)
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml logs --tail=20 translator-worker
+# 9. Translator worker readiness
+# Use `docker compose ... ps translator-worker` and report pass/fail only; do not paste logs.
 
 # 10. Clean up the disposable environment
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
 ```
 
 Report command and pass/fail only; do not paste resolved env values, full Compose output, or secret-bearing logs.
@@ -133,7 +133,6 @@ the canonical Compose defaults must be overridden in the real `.env` file:
 ```bash
 # libnode-deployer/.env (local-only, ignored by git)
 CORS_ORIGIN=https://libnode.qustust.ru
-API_BASE_URL=https://libnode.qustust.ru
 AllowedHosts=libnode.qustust.ru
 ForwardedHeaders__Enabled=true
 Swagger__Enabled=false
@@ -141,18 +140,16 @@ Swagger__Enabled=false
 
 Key points:
 
-- `AllowedHosts` must match the `Host` header that the reverse proxy sends to the backend.
-  If the browser is served at `https://libnode.qustust.ru/` and the proxy forwards requests
-  to the `api` container, Kestrel receives `Host: libnode.qustust.ru`. With the default
-  `AllowedHosts=libnode-api`, Kestrel rejects the request with `400 Bad Request - Invalid Hostname`.
-  The fix is to set `AllowedHosts=libnode.qustust.ru` (or `*` only for local dev).
+- `AllowedHosts` must include the internal Docker service host `api` for Nuxt SSR/BFF requests.
+  The canonical Compose value is `api;${AllowedHosts:-libnode-api}`. If backend is also exposed
+  directly through a reverse proxy, set `AllowedHosts` to that public backend hostname.
 - `ForwardedHeaders__Enabled=true` lets the API see the original client protocol and host
   through `X-Forwarded-Proto` / `X-Forwarded-Host` headers. Configure the reverse proxy to
   forward these headers and trust the Docker network (the default clears `KnownProxies`/`KnownNetworks`).
-- `CORS_ORIGIN` must be the exact HTTPS origin the browser uses; otherwise the frontend cannot
-  call the API from the client side.
-- `API_BASE_URL` is the browser-facing API URL. If the API is exposed on a separate subdomain,
-  set it to that subdomain (e.g., `https://api.libnode.qustust.ru`).
+- `CORS_ORIGIN` should be the exact HTTPS origin of the reader frontend for direct backend access.
+  The main browser auth-flow uses same-origin Nuxt BFF and does not require a separate browser API base.
+- Browser API traffic goes to same-origin Nuxt BFF (`/api/*`). `NUXT_PUBLIC_API_BASE`
+  remains the internal server-side backend URL (`http://api:8080` in Compose).
 
 Example minimal Nginx reverse-proxy snippet for a single-domain setup:
 
@@ -164,23 +161,7 @@ server {
     # SSL certificates here
 
     location / {
-        proxy_pass http://127.0.0.1:3001;  # Nuxt frontend
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000;  # ASP.NET backend
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /reader/ {
-        proxy_pass http://127.0.0.1:5000;  # translator publishing ingest endpoint
+        proxy_pass http://127.0.0.1:3001;  # Nuxt frontend + same-origin /api BFF
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
@@ -208,8 +189,8 @@ Since Phase 2, the canonical `docker-compose.yml` defaults to production-like ru
 - `BASIC_AUTH_ENABLED=true` — Translator admin requires credentials; defaults are rejected at startup.
 - Rate limiting active on `/api/auth/*` (10 req/min) and `/api/reader/*` (60 req/min).
 - Translator unknown errors return generic messages; internal details logged server-side.
-- Translator mutating web forms have CSRF double-submit cookie protection.
-- `AllowedHosts` is set to `libnode-api` by default; operators must override this to their production API hostname.
+- Translator admin mutations go through JSON API routes protected by Basic Auth and CSRF token checks.
+- `AllowedHosts` always includes internal `api`; operators set only additional public backend hostnames.
 
 Use `docker-compose.dev.yml` to restore development-friendly behavior for local iteration:
 ```bash
@@ -222,7 +203,7 @@ docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.d
 
 - **Workspace discipline:** four separate implementation repos, parent `.planning/` local-only, Docker-first verification, and repo-specific status checks.
 - **Deployment defaults:** API runs in `Production`, Swagger/ForwardedHeaders/RateLimiting are gated, translator fails closed with non-default credentials.
-- **Auth surfaces:** JWT bearer auth on backend; client-created `auth_token` cookie with conditional `Secure` and `SameSite=Lax` on frontend; translator Basic Auth + CSRF for web forms.
+- **Auth surfaces:** JWT bearer auth on backend; Nuxt BFF sets HttpOnly `auth_token` with conditional `Secure` and `SameSite=Lax`; translator Basic Auth + CSRF for web forms.
 - **Backend invariants:** EF migrations reconcile cleanly; collection add/move is idempotent/atomic; reading-progress upsert handles concurrent first writes; tags/categories protected by unique DB constraints.
 - **Reader contracts:** `ChapterDetailDto` exposes `previousChapterId`/`nextChapterId`; catalog uses `CursorStringPagedResult<T>` with deterministic sort-value + ID tie-breakers.
 - **Frontend integration:** `useApiFetch` is the single API layer; `useCatalogCursor.ts` owns catalog state; DTOs mirror backend contracts.
@@ -231,7 +212,7 @@ docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.d
 
 ### What v1 Stabilization Does Not Prove
 
-- **Server-set HttpOnly cookies / refresh-token rotation** (v2: AUTH2-01, AUTH2-02).
+- **Refresh-token rotation** (v2: AUTH2-02). Access-token cookie is currently server-set and HttpOnly.
 - **Comprehensive SSRF sandbox / allowlist/denylist for outbound networking** (v2: TRSEC2-02). The current URL policy blocks IP-based private/loopback addresses but does not block hostname-based internal Docker traffic.
 - **Production server migration with TLS/reverse proxy** (v2: PROD-01, PROD-02).
 - **CI/CD automation** (v2: PROD-03).
@@ -248,4 +229,4 @@ Phase 2 hardening covers deployment defaults, auth surfaces, and error safety. I
 - Collection idempotency or reading-progress concurrency (Phase 3).
 - Reader neighbor contract or catalog cursor pagination (Phase 4).
 - Translator outbound timeout/size limits or chunked translation (Phase 5).
-- Server-set HttpOnly session cookies (v2).
+- Refresh-token rotation (v2).

@@ -8,8 +8,8 @@
 - [MANDATORY] `AllowedHosts` is set via env var and must include both the internal Docker service name (`api`) and the public API hostname. Canonical compose uses `AllowedHosts=api;${AllowedHosts:-libnode-api}`. Never leave it as `*` in production compose.
 - [MANDATORY] `TRANSLATOR_BASIC_AUTH_ENABLED=true` and explicit non-default credentials are required in production; `admin/admin`, `placeholder-*`, `changeme`, and empty strings are rejected by translator startup validation.
 - [MANDATORY] `TRANSLATOR_CSRF_SECRET` must be set to a high-entropy value in production; do not use the fallback dev secret.
-- [MANDATORY] Use `docker compose --env-file .env.example config --quiet` for validation; never paste resolved `docker compose config` output because it may contain env values.
-- [MANDATORY] Use the `docker-compose.verify.yml` overlay with `.env.verify.example` for disposable PostgreSQL/Redis, backend migration (`api-migrate`), backend regression tests (`api-tests`), and hardened translator smoke checks.
+- [MANDATORY] Use `docker compose --env-file .env.example config --quiet` for canonical validation and `.env.verify.example` with the verify overlay for disposable validation; never paste resolved `docker compose config` output because it may contain env values.
+- [MANDATORY] Use the `docker-compose.verify.yml` overlay with `.env.verify.example` for disposable PostgreSQL/Redis/MinIO/translator Playwright storage, backend migration (`api-migrate`), backend regression tests (`api-tests`), and hardened translator smoke checks.
 - [MANDATORY] See `VERIFY.md` for the full Phase 6 verification matrix: build all images, run migrations, run backend tests, run translator init, and smoke web/worker health.
 - [MANDATORY] Local verification targets a trusted local subnet. Document any trusted-subnet assumptions separately from production-like hardening expectations.
 

@@ -26,7 +26,7 @@ make verify
 make restart
 
 # 3. Проверить сервисы
-curl -sS http://localhost:5000/api/books?limit=1
+curl -sS http://localhost:3001/api/books?limit=1  # через Nuxt BFF
 curl -sS http://localhost:3001/          # Nuxt frontend
 curl -sS http://localhost:3005/health    # translator web
 
@@ -72,8 +72,7 @@ cp .env.example .env
 | `JWT_SIGNING_KEY` | Секрет подписи JWT (минимум 32 символа) | `...` |
 | `TRANSLATOR_API_KEY` | API key для публикации переводов | `...` |
 | `CORS_ORIGIN` | Origin фронтенда | `https://libnode.qustust.ru` |
-| `API_BASE_URL` | URL API для браузера | `https://libnode.qustust.ru` |
-| `AllowedHosts` | Домен, который принимает backend | `libnode.qustust.ru` |
+| `AllowedHosts` | Внешний backend-домен; `api` добавляется compose автоматически | `libnode.qustust.ru` |
 | `ForwardedHeaders__Enabled` | `true` за reverse proxy | `true` |
 | `TRANSLATOR_DATABASE_URL` | PostgreSQL для translator | `postgresql://...` |
 | `TRANSLATOR_REDIS_URL` | Redis для translator | `redis://...` |
@@ -84,13 +83,9 @@ cp .env.example .env
 
 ### Важно: `AllowedHosts`
 
-Если сайт открыт по `https://libnode.qustust.ru/`, а `AllowedHosts` оставлено по умолчанию `libnode-api`, Kestrel вернёт:
+Если backend открыт напрямую по публичному домену, этот домен должен быть в `AllowedHosts`; иначе Kestrel вернёт `400 Bad Request - Invalid Hostname` для прямых backend-запросов.
 
-```
-400 Bad Request - Invalid Hostname
-```
-
-Решение: в `.env` установите:
+В `.env` установите только внешний backend hostname. Внутреннее Docker-имя `api` compose добавляет автоматически:
 
 ```bash
 AllowedHosts=libnode.qustust.ru
@@ -114,23 +109,7 @@ server {
     # SSL certificates
 
     location / {
-        proxy_pass http://127.0.0.1:3001;  # Nuxt frontend
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /api/ {
-        proxy_pass http://127.0.0.1:5000;  # ASP.NET backend
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /reader/ {
-        proxy_pass http://127.0.0.1:5000;
+        proxy_pass http://127.0.0.1:3001;  # Nuxt frontend + same-origin /api BFF
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header X-Forwarded-Host $host;
@@ -143,58 +122,31 @@ Translator admin лучше вынести на отдельный порт/до
 
 ### Nginx Proxy Manager (NPM)
 
-В NPM по умолчанию заголовок `Host` может заменяться на upstream-имя или IP. Если backend возвращает `400 Bad Request - Invalid Hostname`, хотя в `.env` уже прописан `AllowedHosts=libnode.qustust.ru`, значит до API доходит не тот `Host`.
+Текущая auth-схема использует Nuxt BFF: browser ходит на same-origin `/api/*`, Nuxt читает HttpOnly cookie `auth_token` и сервером добавляет `Authorization` к backend. Поэтому `/api/*` должен попадать в `web:3000`, а не напрямую в backend. Иначе login/register/profile update обойдут cookie-слой и могут вернуть JWT в browser response.
 
-**Главное:** не проксируйте `/api/*` через frontend-контейнер (`web:3000`). Nuxt при проксировании во внутреннюю Docker-сеть (`api:8080`) меняет `Host` на `api:8080`, и Kestrel отказывает. Правильно: NPM сам маршрутизирует `/api/*` напрямую на backend (`api:5000`).
-
-Проверка локально (должно вернуть 200):
+Проверка backend напрямую остаётся полезной только как сервисная диагностика:
 
 ```bash
 curl -H "Host: libnode.qustust.ru" http://localhost:5000/api/books?limit=1
 ```
 
-Если сработало, а через NPM нет — проблема в маршрутизации. Настройка NPM:
+Настройка NPM:
 
 1. Создайте Proxy Host для `libnode.qustust.ru`.
 2. **Forward Hostname / IP** — IP хоста, где крутится Docker (например, `100.126.73.77`).
 3. **Forward Port** — `3001` (frontend).
-4. Вкладка **Advanced** → добавьте custom locations:
-
-```nginx
-location /api/ {
-    proxy_pass http://100.126.73.77:5000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-
-location /reader/ {
-    proxy_pass http://100.126.73.77:5000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-Host $host;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Real-IP $remote_addr;
-}
-
-# Для /assets/ и остальных путей — остаётся на frontend (NPM сделает сам по Forward IP/Port)
-```
-
-5. Если NPM и backend в одной Docker-сети, можно использовать `http://api:8080` вместо `100.126.73.77:5000`. Но в типичном случае NPM находится вне сети `libnode-deployer`, поэтому используйте IP хоста и опубликованные порты (`5000`, `3001`, `3005`).
-
-6. Сохраните и проверьте:
+4. Не добавляйте custom location для `/api/`; этот путь должен обслуживать Nuxt BFF.
+5. Сохраните и проверьте:
 
 ```bash
 curl -sS https://libnode.qustust.ru/api/books?limit=1
 ```
 
-Должен вернуть JSON, а не `400 Bad Request - Invalid Hostname`.
+Должен вернуть JSON через frontend BFF.
 
 ### Альтернатива: отдельный API-домен
 
-Если не хотите возиться с custom locations в NPM, создайте отдельный поддомен:
+Отдельный API-домен можно использовать для сервисной диагностики или внешних non-browser клиентов, но не как browser-facing endpoint для основного frontend auth-flow:
 
 - `api.libnode.qustust.ru` → `100.126.73.77:5000`
 - `libnode.qustust.ru` → `100.126.73.77:3001`
@@ -202,12 +154,11 @@ curl -sS https://libnode.qustust.ru/api/books?limit=1
 В `libnode-deployer/.env`:
 
 ```bash
-API_BASE_URL=https://api.libnode.qustust.ru
 CORS_ORIGIN=https://libnode.qustust.ru
 AllowedHosts=api.libnode.qustust.ru
 ```
 
-Тогда браузер будет ходить на API напрямую, минуя frontend-прокси, и проблемы с `Host` не будет.
+Основной frontend всё равно должен отправлять browser `/api/*` на Nuxt BFF, чтобы HttpOnly cookie contract сохранялся.
 
 ## Проверка перед релизом
 
@@ -218,15 +169,14 @@ AllowedHosts=api.libnode.qustust.ru
 docker compose --env-file .env.example config --quiet
 
 # Disposable overlay: миграции, тесты, translator smoke
-# (требуется .env.verify с реальными placeholder-заменами)
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml config --quiet
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml config --quiet
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-migrate
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm api-tests
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
 curl -sS http://localhost:13005/health
 # cleanup
-docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
 ```
 
 ## Сервисы и порты
@@ -235,6 +185,8 @@ docker compose -p libnode_verify --env-file .env.verify -f docker-compose.yml -f
 |--------|----------------|------------------------|------|
 | `api` | `8080` | `5000` | ASP.NET Core reader API |
 | `web` | `3000` | `3001` | Nuxt 3 SSR frontend |
+| `minio` | `9000`/`9001` | `9000`/`9001` | S3-compatible storage for covers/avatars |
+| `minio-init` | — | — | One-off bucket initialization |
 | `translator-init` | — | — | One-off Prisma migrate + seed |
 | `translator-web` | `3005` | `3005` | Express admin/API |
 | `translator-worker` | — | — | BullMQ workers |

@@ -25,4 +25,5 @@ services:
   translator-worker:
     environment:
       - NODE_ENV=development
+      - BASIC_AUTH_ENABLED=false
       - LOG_LEVEL=debug
