@@ -5,7 +5,7 @@
 ENV_FILE ?= .env
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
-.PHONY: help up down restart build logs status verify test
+.PHONY: help up down restart build logs status verify test test-translator-queue verify-translator-queue
 
 help:
 	@echo "LibNode Deployer — available commands:"
@@ -18,6 +18,8 @@ help:
 	@echo "  make status   — show running containers"
 	@echo "  make verify   — validate compose config without exposing secrets"
 	@echo "  make test     — run backend regression tests (uses verify overlay)"
+	@echo "  make test-translator-queue — isolated translator lifecycle tests (QUEUE_TEST_MODE=integration|offline|checks|failure-check)"
+	@echo "  make verify-translator-queue — quiet example-only queue test config validation"
 
 up:
 	$(COMPOSE) up -d
@@ -52,3 +54,12 @@ test:
 	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml run --rm translator-init
 	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml up -d translator-web translator-worker
 	docker compose -p libnode_verify --env-file $(VERIFY_ENV_FILE) -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
+
+# These targets deliberately do not use COMPOSE, ENV_FILE or VERIFY_ENV_FILE.
+QUEUE_TEST_MODE ?= integration
+export QUEUE_TEST_MODE
+test-translator-queue:
+	@bash scripts/test-translator-queue.sh
+
+verify-translator-queue:
+	@bash scripts/test-translator-queue.sh --verify

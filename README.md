@@ -179,6 +179,22 @@ curl -sS http://localhost:13005/health
 docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
 ```
 
+## Изолированные translator queue-тесты
+
+```bash
+make verify-translator-queue
+make test-translator-queue
+make test-translator-queue QUEUE_TEST_MODE=offline
+make test-translator-queue QUEUE_TEST_MODE=checks
+make test-translator-queue QUEUE_TEST_MODE=failure-check
+```
+
+Это отдельный opt-in профиль `translator-queue-tests` существующего verify overlay, не запуск живого стека. Каждая команда генерирует новый непереопределяемый Compose project `libnode-translator-queue-*` и использует только `.env.verify.example`, игнорируя production `COMPOSE`/`ENV_FILE`/`VERIFY_ENV_FILE` и shell endpoint overrides. `integration` и `failure-check` запускают только disposable PostgreSQL/Redis и `translator-tests` из tools image; `offline` — обычный `npm test`, `checks` — type/lint без зависимостей. Runtime/Vite flow не меняется, пакеты не добавляются. Тестовый контейнер без published ports, bind mounts или live env file подключён только к internal network.
+
+`TEST_DATABASE_URL`/`TEST_REDIS_URL`, `TEST_TRANSLATOR_QUEUE=1`, `NODE_ENV=test` проверяются до миграции/подключения: только тестовые service DNS/порты/БД, без production fallback, query/fragment и Redis credentials. Prisma миграции идут внутри tools container, `DATABASE_URL` задаётся только в проверенном CLI child. Cleanup по EXIT/INT/TERM удаляет только собственный project и проверяет отсутствие containers/networks/volumes; expected exit 42 в `failure-check` считается успехом только вместе с доказанной очисткой.
+
+Проверяются реальные production services/repositories/BullMQ/Prisma и registered-worker final failure (около 35 секунд реальных retry waits), не live LLM/browser/source/admin HTTP или production migration. Pause — **глобальный** для всех проектов: active работа может завершиться, pending других проектов ждёт, их DB status/history сохраняются. Resume любого проекта снимает общую паузу. Полная матрица, ограничения и повторный запуск — в `VERIFY.md`. Test-only изменения не требуют рестарта live stack; runtime fix потребовал бы отдельного согласованного `make restart`.
+
 ## Сервисы и порты
 
 | Сервис | Внутренний порт | Хост порт по умолчанию | Роль |

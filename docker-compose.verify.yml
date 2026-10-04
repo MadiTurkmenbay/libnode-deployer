@@ -22,6 +22,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - default
+      - translator-queue-tests
 
   redis-verify:
     image: redis:7-alpine
@@ -30,6 +33,30 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    networks:
+      - default
+      - translator-queue-tests
+
+  translator-tests:
+    profiles: [translator-queue-tests]
+    image: libnode-translator-queue-tests:local
+    build:
+      context: ../libnode-translator
+      dockerfile: Dockerfile
+      target: tools
+    environment:
+      NODE_ENV: test
+      TEST_TRANSLATOR_QUEUE: "1"
+      TEST_DATABASE_URL: ${TEST_DATABASE_URL:-}
+      TEST_REDIS_URL: ${TEST_REDIS_URL:-}
+    depends_on:
+      postgres-translator-verify:
+        condition: service_healthy
+      redis-verify:
+        condition: service_healthy
+    networks:
+      - translator-queue-tests
+    command: ["npm", "run", "test:queue:integration"]
 
   api:
     environment:
@@ -148,3 +175,7 @@ services:
 volumes:
   minio-verify-data:
   translator-playwright-verify-data:
+
+networks:
+  translator-queue-tests:
+    internal: true

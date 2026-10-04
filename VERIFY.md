@@ -69,7 +69,52 @@ docker compose -p libnode_verify --env-file .env.verify.example -f docker-compos
 docker compose -p libnode_verify --env-file .env.verify.example -f docker-compose.yml -f docker-compose.verify.yml down -v --remove-orphans
 ```
 
-## Cleanup
+## Opt-in Translator Queue Lifecycle Tests
+
+Run from this repository; no live stack restart or admin action is needed:
+
+```bash
+make verify-translator-queue
+make test-translator-queue
+make test-translator-queue # independent clean run in a newly generated project
+make test-translator-queue QUEUE_TEST_MODE=offline
+make test-translator-queue QUEUE_TEST_MODE=checks
+make test-translator-queue QUEUE_TEST_MODE=failure-check
+```
+
+| Mode | Work | Dependencies started |
+|------|------|----------------------|
+| `integration` (default) | Guard, disposable Prisma migration, dedicated Vitest lifecycle suite | Only `postgres-translator-verify`, `redis-verify`, tools `translator-tests` |
+| `offline` | Normal infrastructure-free `npm test` discovery | None |
+| `checks` | `tsc --noEmit` and ESLint | None |
+| `failure-check` | Guard and migration, deliberate exit 42, same scoped cleanup | Only the disposable PostgreSQL/Redis and test container |
+
+These targets never use production `COMPOSE`, `ENV_FILE` or `VERIFY_ENV_FILE`. The script sanitizes Docker/Compose's environment, fixes the two Compose files, example env file and profile, and generates a non-overridable random `libnode-translator-queue-*` project. It first checks for exact-project collisions, registers cleanup before build/startup, uses bounded dependency health waits and `run --rm --no-deps`, and starts no API/frontend/MinIO/translator web/worker/init services. No test service has a host port, bind mount, live env file or provider settings. Only the test container is restricted to its internal network; existing disposable dependencies also retain their default network for the broader verify matrix.
+
+### Endpoint and Migration Safety
+
+The checked-in example supplies disposable `TEST_DATABASE_URL` and `TEST_REDIS_URL`. Runner, dedicated Vitest config and fixture all require `NODE_ENV=test` and `TEST_TRANSLATOR_QUEUE=1` before migration/client setup. Only `postgresql://` with host `postgres-translator-verify`, port `5432`, database path `/libnode_translator_verify` and credential-free `redis://redis-verify:6379/15` are accepted. Missing inputs, other schemes/hosts/ports/paths, query/fragment and Redis userinfo fail with variable-only errors. Production `DATABASE_URL`/`REDIS_URL` never satisfy this guard.
+
+The tools container uses installed local Prisma/Vitest binaries, not downloading `npx`. A sanitized Prisma CLI child alone receives `DATABASE_URL` from validated `TEST_DATABASE_URL` for `migrate deploy`. Tests connect through explicit Prisma 6 datasource/Ioredis values without `getConfig`, dotenv, singletons or production app context. Default `npm test` excludes the infrastructure directory. Tests/config are copied only into tools after application compilation; lean runtime and Docker Vite generation remain unchanged.
+
+### What the Suite Proves
+
+- Real production `QueueService`, `ProjectService`, repositories, queue registry, BullMQ/Redis and Prisma/PostgreSQL, including actual `registerWorkers` failure lifecycle; only external processors are controlled doubles.
+- Exact pending cleanup counts and idempotence from initially unpaused/already-paused queues; ordinary/paused, delayed and prioritized jobs; only owned `QUEUED` translation JobRuns and `QUEUED` chapter reset/error clearing.
+- Active/RUNNING work and locks, FAILED/SUCCEEDED history, non-translation work and other-project jobs/rows/status survive.
+- Actual Resume requeues eligible failed/cleared chapters once in the configured range, excludes retained queued/translating/completed-status/out-of-range work, and consecutive Resume preserves job/run IDs and counts.
+- Four in-place attempts on the same job/run, persisted RETRYING then FAILED attempt 4/error/timestamps/progress, no premature cleanup, retained failed history and a fresh run on Resume. The unchanged 5/10/20-second real waits take approximately 35 seconds; build/startup time is additional.
+- **Shared pause, not project-specific pause:** final failure pauses the global translation queue for every project. An already-active B translation can finish while B's next pending translation waits. B's DB project status need not become `PAUSED`. Resume of A (or any project) unpauses globally.
+
+This does **not** verify live LLM/browser/source/reader integrations, admin HTTP/auth/CSRF behavior, production migration or a live image refresh. Test-only edits rebuild tools via the focused target; a proven runtime source fix needs a separately coordinated `make restart`, not a silent live operation during isolated acceptance.
+
+### Success and Failure Cleanup
+
+Fixture teardown releases gates and closes workers before queues and caller-owned Redis/Prisma, removes only tracked jobs/rows, deletes owned JobRuns before SetNull-linked projects, checks no fixture residues and restores test queue pause between serial cases. Never flush Redis, obliterate queues, truncate tables or issue unscoped deletes.
+
+On success, assertion/build/migration failure or handled interruption, the script runs `down --volumes --remove-orphans` for **only its generated project**, then checks Docker project labels for remaining containers/networks/volumes. Build images/cache are retained for repeatability; no prune is performed. Cleanup failure is always nonzero. `failure-check` passes only for the deliberate post-migration exit 42 **and** successful absence checks; unrelated failures remain nonzero. Report mode, command, counts and cleanup PASS/FAIL only, never expanded config, connection values or runtime logs.
+
+## Cleanup (Broader Verify Matrix)
 
 If a verification run is interrupted, clean the disposable project before retrying:
 
