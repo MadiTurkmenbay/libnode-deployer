@@ -5,7 +5,7 @@
 ENV_FILE ?= .env
 COMPOSE = docker compose --env-file $(ENV_FILE)
 
-.PHONY: help up down restart build logs status verify test test-translator-queue verify-translator-queue
+.PHONY: help up down restart build logs status verify test test-translator-queue verify-translator-queue test-reader-e2e verify-reader-e2e
 
 help:
 	@echo "LibNode Deployer — available commands:"
@@ -20,6 +20,8 @@ help:
 	@echo "  make test     — run backend regression tests (uses verify overlay)"
 	@echo "  make test-translator-queue — isolated translator lifecycle tests (QUEUE_TEST_MODE=integration|offline|checks|failure-check)"
 	@echo "  make verify-translator-queue — quiet example-only queue test config validation"
+	@echo "  make test-reader-e2e — isolated browser tests (READER_E2E_MODE=integration|checks|backend-unit|failure-check)"
+	@echo "  make verify-reader-e2e — quiet example-only reader test config validation"
 
 up:
 	$(COMPOSE) up -d
@@ -63,3 +65,11 @@ test-translator-queue:
 
 verify-translator-queue:
 	@bash scripts/test-translator-queue.sh --verify
+
+READER_E2E_MODE ?= integration
+export READER_E2E_MODE
+test-reader-e2e:
+	@bash scripts/test-reader-e2e.sh
+
+verify-reader-e2e:
+	@bash scripts/test-reader-e2e.sh --verify

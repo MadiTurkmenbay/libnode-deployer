@@ -11,6 +11,10 @@ services:
       timeout: 5s
       retries: 20
 
+    networks:
+      - default
+      - reader-e2e
+
   postgres-translator-verify:
     image: postgres:16-alpine
     environment:
@@ -57,6 +61,94 @@ services:
     networks:
       - translator-queue-tests
     command: ["npm", "run", "test:queue:integration"]
+
+  # Dedicated services: never inherit live api/web names, ports or mounts.
+  reader-e2e-api-build:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode
+      target: build
+    networks: [reader-e2e]
+
+  reader-e2e-migrate:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode
+      additional_contexts:
+        backend_build: service:reader-e2e-api-build
+      dockerfile_inline: |
+        FROM backend_build
+        RUN dotnet tool restore && dotnet restore LibNode.Api.Tests/LibNode.Api.Tests.csproj
+    environment:
+      TEST_READER_E2E: "1"
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres-reader-verify;Port=5432;Database=libnode_verify;Username=verify_user;Password=verify_password
+    networks: [reader-e2e]
+    command:
+      - sh
+      - -ec
+      - |
+        test "$$TEST_READER_E2E" = 1
+        test "$$ConnectionStrings__DefaultConnection" = 'Host=postgres-reader-verify;Port=5432;Database=libnode_verify;Username=verify_user;Password=verify_password'
+        dotnet ef database update --no-build --configuration Release
+
+  reader-e2e-api:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode
+      target: runtime
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: Host=postgres-reader-verify;Port=5432;Database=libnode_verify;Username=verify_user;Password=verify_password
+      JwtSettings__Key: placeholder-reader-e2e-signing-key-not-for-production
+      JwtSettings__Issuer: reader-e2e
+      JwtSettings__Audience: reader-e2e
+      JwtSettings__ExpiresInMinutes: "1"
+      IntegrationAuth__TranslatorApiKey: placeholder-reader-e2e-ingest-key
+      Cors__Origins__0: http://reader-e2e-web:3000
+      AllowedHosts: reader-e2e-api
+      Swagger__Enabled: "false"
+      ForwardedHeaders__Enabled: "true"
+      RateLimiting__Enabled: "true"
+      RateLimiting__Auth__PermitLimit: "100"
+      RateLimiting__Auth__WindowMinutes: "1"
+      RateLimiting__Ingest__PermitLimit: "100"
+      RateLimiting__Ingest__WindowMinutes: "1"
+    networks: [reader-e2e]
+
+  reader-e2e-web:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode-frontend
+      target: runtime
+    environment:
+      NUXT_PUBLIC_API_BASE: http://reader-e2e-api:8080
+    networks: [reader-e2e]
+
+  reader-e2e-web-checks:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode-frontend
+      target: build
+    networks: [reader-e2e]
+    command: ["npm", "test"]
+
+  reader-e2e-runner:
+    profiles: [reader-e2e]
+    build:
+      context: ../libnode-translator
+      target: playwright
+    environment:
+      NODE_ENV: test
+      TEST_READER_E2E: "1"
+      TEST_READER_WEB_URL: http://reader-e2e-web:3000
+      TEST_READER_API_URL: http://reader-e2e-api:8080
+      TEST_READER_INGEST_KEY: placeholder-reader-e2e-ingest-key
+    volumes:
+      - ../libnode-frontend/tests/e2e:/app/reader-e2e:ro
+    networks: [reader-e2e]
+    init: true
+    command: ["node", "/app/reader-e2e/run-reader-e2e.cjs"]
 
   api:
     environment:
@@ -177,5 +269,7 @@ volumes:
   translator-playwright-verify-data:
 
 networks:
+  reader-e2e:
+    internal: true
   translator-queue-tests:
     internal: true

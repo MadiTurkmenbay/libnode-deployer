@@ -114,6 +114,43 @@ Fixture teardown releases gates and closes workers before queues and caller-owne
 
 On success, assertion/build/migration failure or handled interruption, the script runs `down --volumes --remove-orphans` for **only its generated project**, then checks Docker project labels for remaining containers/networks/volumes. Build images/cache are retained for repeatability; no prune is performed. Cleanup failure is always nonzero. `failure-check` passes only for the deliberate post-migration exit 42 **and** successful absence checks; unrelated failures remain nonzero. Report mode, command, counts and cleanup PASS/FAIL only, never expanded config, connection values or runtime logs.
 
+## Opt-in Reader Account/Profile/Collection Browser Checks
+
+```bash
+make verify-reader-e2e
+make test-reader-e2e READER_E2E_MODE=checks
+make test-reader-e2e READER_E2E_MODE=backend-unit
+make test-reader-e2e
+make test-reader-e2e # second independent disposable run
+make test-reader-e2e READER_E2E_MODE=failure-check
+```
+
+The runner uses actual production ASP.NET/Nuxt builds and headless Chromium against a fresh PostgreSQL database. These commands never operate live services: generated `libnode-reader-e2e-*` project, sanitized same-host Docker default context, fixed `.env.verify.example`, dedicated services without fixed container names, ports or live mounts, and explicit service selection/`--no-deps`. API/web/migration/runner have only an internal network. The disposable PostgreSQL also retains its existing default network for compatibility with the broader verify matrix. Only frontend `tests/e2e` source is mounted read-only into the existing translator Playwright tooling stage; no translator application is imported or started.
+
+Compose/Buildx must support `additional_contexts` and `dockerfile_inline`. Migration image derives from the real backend SDK build; pinned EF tooling and test packages restore at build time. Migration checks the opt-in and exact disposable connection before applying real EF migrations. Browser startup likewise rejects any alternate endpoint, project marker, fixture key or mode before importing Playwright or making requests. No production fallback or runtime downloads. `checks` runs offline Vitest and 2 positive/39 negative pure guard vectors, without infrastructure. `backend-unit` filters only the in-memory collection service tests, without DB dependencies.
+
+### Coverage and Boundaries
+
+| Surface | Checks |
+|---|---|
+| Real UI + BFF | Register; mismatch/short-password validation; duplicate username/email feedback; wrong-password feedback; login/logout/relogin |
+| Profile UI + SSR | Direct document heading, hydration, reload and a new page sharing the automatic session; profile update/conflict and persisted name |
+| Behavioral session renewal | Independently UI-login an untouched control and primary session; at approximately +40s update primary profile, at +65s require control `GET /api/me` = 401 and updated primary GET/SSR/reload still authenticated |
+| Collection UI | Create two primary folders; add/move; renamed folder/name status; active-folder click removes; populated-folder deletion confirmation; desktop/mobile controls and no horizontal overflow |
+| Authoritative BFF API | Exact counts/detail/membership/status, repeat-add no-op (not repeat-click UI), foreign detail 404 and mutations 403, invalid name 400, missing rename/delete 404, anonymous protected API denial |
+| Independence/cascade | Separately UI-register/login another fixture user; its same-book membership survives first-user move/rename/remove/delete and forbidden writes; books and remaining folder survive deletion |
+| Response leak guard | Successful auth/profile PUT JSON keys exactly match UserDto; profile GET keys match UserProfileDto. No token values are accessed, printed or compared |
+
+The one-minute JWT lifetime is **test-only** and uses the unchanged backend's zero clock skew. Real waiting proves that a profile PUT replaces the BFF session behaviorally, not merely that the DB name changed. Login occurs only at explicit scenario boundaries; it cannot mask a renewal assertion. Session jars are handled automatically by Playwright `BrowserContext.request`; tests never read cookies, Set-Cookie, Authorization, browser storage or profiles, nor construct reader Bearer headers. Fixture book/chapter creation uses only the public ingest API with an example-only key; fixture accounts use UI registration. This is not translator publication evidence.
+
+No screenshots/traces/video/HAR or raw browser/application logs. Reports contain only static scenario IDs, whitelisted failure classes, UI/API/infra counts and cleanup flags. The required inventory must be complete with no skips/zero-case success; failures are nonzero. `failure-check` is not browser coverage: it requires exit 42 **and** its static post-fixture marker after ingest succeeded, followed by cleanup.
+
+### Cleanup and Live Acceptance
+
+EXIT/INT/TERM traps are registered before build/startup. Teardown closes ephemeral browser contexts and removes only the generated project's containers/networks/volumes, then independently checks exact-project labels are absent. No prune, shared SQL cleanup or runtime-data deletion. Build images/cache remain for repeatability. Every independent run, including deliberate failure, must report containers=0/networks=0/volumes=0; cleanup failure is always nonzero.
+
+This proves isolated rebuilt applications, not a live image refresh or public production readiness. Test-only changes need isolated builds only; runtime changes require a separately coordinated `make restart` for live acceptance. Optional live reader access for the operator is `http://192.168.0.106:3001`; internal test service DNS is not a user-facing link. Working data, real env inputs, paid LLM/source calls and translator authentication remain untouched. Progress, quotes, notifications, upload storage and translator-to-reader publication are outside this slice.
+
 ## Cleanup (Broader Verify Matrix)
 
 If a verification run is interrupted, clean the disposable project before retrying:

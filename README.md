@@ -195,6 +195,18 @@ make test-translator-queue QUEUE_TEST_MODE=failure-check
 
 Проверяются реальные production services/repositories/BullMQ/Prisma и registered-worker final failure (около 35 секунд реальных retry waits), не live LLM/browser/source/admin HTTP или production migration. Pause — **глобальный** для всех проектов: active работа может завершиться, pending других проектов ждёт, их DB status/history сохраняются. Resume любого проекта снимает общую паузу. Полная матрица, ограничения и повторный запуск — в `VERIFY.md`. Test-only изменения не требуют рестарта live stack; runtime fix потребовал бы отдельного согласованного `make restart`.
 
+## Изолированные browser-проверки reader
+
+```bash
+make verify-reader-e2e
+make test-reader-e2e READER_E2E_MODE=checks
+make test-reader-e2e READER_E2E_MODE=backend-unit
+make test-reader-e2e
+make test-reader-e2e READER_E2E_MODE=failure-check
+```
+
+Реальные API/Nuxt/Chromium и временная PostgreSQL в новом `libnode-reader-e2e-*` project. Только example-конфигурация, без рабочих данных, published ports, внешних вызовов или запуска translator. `checks` — offline Vitest и guards, `backend-unit` — focused collection tests, `failure-check` — намеренный exit 42 после создания тестовой книги. На каждом выходе удаляются только собственные ресурсы и проверяются нулевые остатки. Требуются Docker Compose/Buildx с `additional_contexts` и `dockerfile_inline`. Полная матрица и границы проверки — в `VERIFY.md`; live restart этим target не выполняется.
+
 ## Сервисы и порты
 
 | Сервис | Внутренний порт | Хост порт по умолчанию | Роль |
